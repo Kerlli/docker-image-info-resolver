@@ -1,4 +1,4 @@
-use serde::{Serialize,Deserialize};
+use serde::{Serialize, Serializer, Deserialize, Deserializer, de::Error};
 use serde_json::Value;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -13,6 +13,63 @@ struct Healthcheck {
   retires: u32,
 }
 
+#[derive(Debug, Clone)]
+enum ExposedPort {
+  Tcp(u16),
+  Udp(u16),
+}
+
+impl Serialize for ExposedPort {
+  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+    match self {
+      Self::Tcp(port) => serializer.serialize_newtype_variant("exposed_port", 0, "tcp", port),
+      Self::Udp(port) => serializer.serialize_newtype_variant("exposed_port", 1, "udp", port),
+    }
+  }
+}
+
+fn deserialize_exposed_ports<'de, D>(deserializer: D) -> Result<Option<Vec<ExposedPort>>, D::Error>
+where
+  D: Deserializer<'de>,
+{
+  let v: Value = Deserialize::deserialize(deserializer)?;
+
+  if v.is_null() {
+    Ok(None)
+  } else if v.is_object() {
+    let map = v.as_object().unwrap();
+    // ignore map value
+    let mut ports: Vec<ExposedPort> = vec![];
+
+    for (key, _) in map {
+      let port_and_protocol: Vec<&str> = key.split('/').collect();
+      if port_and_protocol.len() < 2 {
+        return Err(Error::custom("Unrecognized port formats"));
+      }
+      let port = u16::from_str_radix(port_and_protocol[0], 10);
+      if port.is_err() {
+        return Err(Error::custom("Unable to deserialize port number to u16"));
+      }
+      let protocol = port_and_protocol[1];
+      match protocol {
+        "tcp" => {
+          ports.push(ExposedPort::Tcp(port.unwrap()));
+        },
+        "udp" => {
+          ports.push(ExposedPort::Udp(port.unwrap()));
+        },
+        _ => {
+          return Err(Error::custom("Unknown protocol"));
+        }
+      }
+    }
+
+    return Ok(Some(ports))
+  } else {
+    return Err(Error::custom("Unrecognized data formats"))
+  }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct Config {
   #[serde(rename(deserialize = "ArgsEscaped"))]
@@ -25,8 +82,8 @@ struct Config {
   entry_point: Vec<String>,
   #[serde(rename(deserialize = "Env"))]
   env: Vec<String>,
-  #[serde(rename(deserialize = "ExposedPorts"))]
-  exposed_ports: Value,
+  #[serde(rename(deserialize = "ExposedPorts"), deserialize_with = "deserialize_exposed_ports")]
+  exposed_ports: Option<Vec<ExposedPort>>,
   #[serde(rename(deserialize = "Healthcheck"))]
   healthcheck: Option<Healthcheck>,
   #[serde(rename(deserialize = "Labels"))]

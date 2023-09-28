@@ -1,5 +1,7 @@
+mod descriptor;
 mod layer;
 mod manifest;
+mod media_type;
 
 use std::collections::HashMap;
 use std::io::prelude::*;
@@ -8,7 +10,10 @@ use std::ffi::OsStr;
 use std::path::Path;
 use serde::Serialize;
 use tar::Archive;
-use crate::error::ResolverError;
+use crate::{
+  error::ResolverError,
+  // digest::{digest, digest_io},
+};
 use self::layer::Layer;
 use self::manifest::{Manifest, ManifestConfig};
 
@@ -39,6 +44,7 @@ impl Image {
         let mut layers: Vec<Layer> = vec![];
 
         let mut archive_content_map: HashMap<String, String> = HashMap::new();
+        let mut tar_size_map: HashMap<String, u64> = HashMap::new();
 
         for entry in entries {
           let mut f = entry?;
@@ -49,12 +55,25 @@ impl Image {
             let mut file_content = String::new();
             f.read_to_string(&mut file_content)?;
             archive_content_map.insert(file_name, file_content);
+          } else {
+            tar_size_map.insert(file_name, f.size());
           }
         }
 
         let manifest_json_string = archive_content_map.get(MANIFEST_NAME)
           .expect("Can not find manifest");
-        let manifest_list: Vec<Manifest> = serde_json::from_str(&manifest_json_string)?;
+        let mut manifest_list: Vec<Manifest> = serde_json::from_str(&manifest_json_string)?;
+
+        for manifest in &mut manifest_list {
+          let layers = manifest.layers_mut();
+          for layer in layers {
+            let size = tar_size_map.get(&layer.digest);
+            if size.is_some() {
+              layer.size = *size.unwrap();
+            }
+            // todo! layer media type
+          }
+        }
 
         for manifest in manifest_list {
           let config_file_name = manifest.config();

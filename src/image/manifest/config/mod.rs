@@ -1,32 +1,15 @@
-use serde::{Serialize, Serializer, Deserialize, Deserializer, de::Error};
+mod exposed_port;
+mod health_check;
+mod history;
+mod root_fs;
+
+use serde::{Serialize, Deserialize, Deserializer, de::Error};
 use serde_json::Value;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct Healthcheck {
-  #[serde(rename(deserialize = "Test"))]
-  test: Vec<String>,
-  #[serde(rename(deserialize = "Interval"))]
-  interval: u32,
-  #[serde(rename(deserialize = "Timeout"))]
-  timeout: u32,
-  #[serde(rename(deserialize = "Retires"))]
-  retires: u32,
-}
-
-#[derive(Debug, Clone)]
-enum ExposedPort {
-  Tcp(u16),
-  Udp(u16),
-}
-
-impl Serialize for ExposedPort {
-  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
-    match self {
-      Self::Tcp(port) => serializer.serialize_newtype_variant("exposed_port", 0, "tcp", port),
-      Self::Udp(port) => serializer.serialize_newtype_variant("exposed_port", 1, "udp", port),
-    }
-  }
-}
+use exposed_port::ExposedPort;
+use health_check::Healthcheck;
+use history::History;
+use root_fs::RootFs;
 
 fn deserialize_exposed_ports<'de, D>(deserializer: D) -> Result<Option<Vec<ExposedPort>>, D::Error>
 where
@@ -102,28 +85,6 @@ struct Config {
   working_dir: String,
   #[serde(rename(deserialize = "User"))]
   user: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct History {
-  author: Option<String>,
-  comment: Option<String>,
-  created: String,
-  created_by: String,
-  empty_layer: Option<bool>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct RootFs {
-  #[serde(rename = "type")]
-  fs_type: String,
-  diff_ids: Vec<String>,
-}
-
-impl RootFs {
-  pub fn diff_ids(&self) -> &Vec<String> {
-    &self.diff_ids
-  }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
